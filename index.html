@@ -1,17 +1,341 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>借用系統原型（測試環境）</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>借用系統原型（測試環境）</title>
+<!-- 工管系場地及設備借用系統｜技術驗證原型前端 prototype-0.1（2026-10-23）
+     本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root { --red:#c62828; --ink:#1f2328; --mute:#57606a; --line:#d0d7de; --bg:#f6f8fa; --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif; color:var(--ink); background:#fff; line-height:1.6; }
+  .banner { background:var(--red); color:#fff; padding:10px 16px; font-weight:700; position:sticky; top:0; z-index:10; }
+  .inapp { display:none; background:#fff4ce; border-bottom:1px solid #e3c25b; padding:10px 16px; }
+  main { max-width:860px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:8px 0 4px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  .sub { color:var(--mute); font-size:13px; margin:0 0 16px; }
+  section { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:0 0 14px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+  button { font:inherit; font-size:14px; padding:7px 12px; border:1px solid var(--line); border-radius:6px; background:var(--bg); cursor:pointer; }
+  button.primary { background:#0969da; border-color:#0969da; color:#fff; }
+  button.admin { border-color:#bf8700; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  input, select { font:inherit; font-size:14px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
+  .who { display:grid; grid-template-columns:max-content 1fr; gap:2px 12px; font-size:14px; }
+  .who dt { color:var(--mute); }
+  .who dd { margin:0; word-break:break-all; }
+  .tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); margin-right:4px; }
+  .note { font-size:13px; color:var(--mute); }
+  #log { list-style:none; padding:0; margin:0; font-size:13px; max-height:420px; overflow:auto; }
+  #log li { border-bottom:1px solid var(--line); padding:6px 2px; }
+  #log .t { color:var(--mute); margin-right:6px; }
+  .ok { color:var(--ok); font-weight:700; }
+  .bad { color:var(--bad); font-weight:700; }
+  .warn { color:var(--warn); font-weight:700; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border-bottom:1px solid var(--line); text-align:left; padding:4px 6px; }
+  .hidden { display:none; }
+</style>
 </head>
-<body style="font-family:sans-serif;margin:0">
-  <div style="background:#c62828;color:#fff;padding:12px 16px;font-weight:bold">
-    測試環境：本頁僅供技術驗證，不含任何正式資料
-  </div>
-  <main style="padding:16px">
-    <h1>工管系場地及設備借用系統｜技術驗證原型</h1>
-    <p>步驟 5 確認：前端測試網址已可正常開啟。</p>
-  </main>
+<body>
+<div class="banner">測試環境：本頁僅供技術驗證，不含任何正式資料</div>
+<div class="inapp" id="inapp">
+  您正在 App 內建瀏覽器中開啟，Google 可能不允許在這裡登入。
+  <a id="openExternal" href="#">請改用手機瀏覽器開啟</a>（或按右上角「⋯」選擇「以瀏覽器開啟」）。
+</div>
+<main>
+  <h1>工管系場地及設備借用系統｜技術驗證原型</h1>
+  <p class="sub">版本 prototype-0.1 · 每個按鈕的結果與耗時會記錄在最下方「測試紀錄」，請依測試表逐項操作。</p>
+
+  <section id="loginBox">
+    <h2>1. 登入</h2>
+    <div id="gsiButton"></div>
+    <p class="note" id="gsiStatus">正在載入 Google 登入按鈕…</p>
+  </section>
+
+  <section id="meBox" class="hidden">
+    <h2>目前登入者</h2>
+    <dl class="who">
+      <dt>姓名</dt><dd id="meName"></dd>
+      <dt>Google Email</dt><dd id="meEmail"></dd>
+      <dt>使用者編號</dt><dd id="meId"></dd>
+      <dt>帳號狀態</dt><dd id="meStatus"></dd>
+      <dt>角色</dt><dd id="meRoles"></dd>
+      <dt>學校 Email</dt><dd id="meSchool"></dd>
+    </dl>
+    <div class="row">
+      <button onclick="doMe()">重新讀取我的資料</button>
+      <button onclick="doLogout()">登出</button>
+    </div>
+  </section>
+
+  <section id="setupBox" class="hidden">
+    <h2>首位系統管理員初始化</h2>
+    <p class="note">系統尚未初始化。只有系辦指定的帳號，輸入系辦產生的設定碼才會成功。設定碼請不要貼到任何對話中。</p>
+    <div class="row">
+      <input id="setupCode" placeholder="XXXX-XXXX-XXXX" autocomplete="off" maxlength="20">
+      <button class="primary" onclick="doClaim()">送出設定碼</button>
+    </div>
+  </section>
+
+  <section id="testBox" class="hidden">
+    <h2>2. 權限測試</h2>
+    <div class="row">
+      <button onclick="doAdminPing()">呼叫「僅系統管理員可用」功能</button>
+      <button onclick="doFakeSession()">用偽造的登入代碼呼叫</button>
+    </div>
+  </section>
+
+  <section id="bookBox" class="hidden">
+    <h2>3. 預約測試（測試預約表）</h2>
+    <div class="row">
+      <label>日期 <input type="date" id="bkDate" value="2026-11-10"></label>
+      <label>開始 <select id="bkStart"></select></label>
+      <label>結束 <select id="bkEnd"></select></label>
+    </div>
+    <div class="row">
+      <button class="primary" onclick="doBook()">預約這個時段</button>
+      <button onclick="doDoubleSubmit()">同一筆連按兩次送出</button>
+      <button onclick="doList()">查看已預約時段</button>
+    </div>
+    <p class="note">「開始含、結束不含」：10:00–12:00 與 12:00–14:00 不衝突。一般使用者只會看到時段，看不到預約人。</p>
+    <div id="bookTable"></div>
+  </section>
+
+  <section id="adminBox" class="hidden">
+    <h2>4. 系統管理員測試工具</h2>
+    <div class="row">
+      <button class="admin" onclick="doBurst()">同時送出 20 次搶同一時段</button>
+      <button class="admin" onclick="doBook('rollback')">模擬寫入中斷（自動還原）</button>
+      <button class="admin" onclick="doBook('no_rollback')">模擬寫入中斷（不還原）</button>
+      <button class="admin" onclick="doRecover()">執行寫入檢查與還原</button>
+    </div>
+    <div class="row">
+      <button class="admin" onclick="doMail()">寄測試信給自己</button>
+      <button class="admin" onclick="doReset()">清除所有測試預約</button>
+    </div>
+    <p class="note">模擬中斷會在寫完 2 張表後故意中斷；「不還原」用來演練人工復原程序。</p>
+  </section>
+
+  <section id="schoolBox" class="hidden">
+    <h2>5. 學校 Email 驗證測試（教職員）</h2>
+    <div class="row">
+      <input id="schoolEmail" type="email" placeholder="學校 Email" style="min-width:240px">
+      <button onclick="doSendCode()">寄送驗證碼</button>
+    </div>
+    <div class="row">
+      <input id="schoolCode" inputmode="numeric" maxlength="6" placeholder="6 位數驗證碼" autocomplete="one-time-code">
+      <button onclick="doVerifyCode()">驗證</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>測試紀錄</h2>
+    <p class="note">「總耗時」是從按下按鈕到收到結果；「後端」是後端程式本身的處理時間。</p>
+    <ul id="log"></ul>
+  </section>
+</main>
+
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbzIPIRBv3GJ_OPMR44hlj51hFfZrokOeb2DETvMvHCjfbGrGHdk-SetoTSRrKsiSlfT/exec';
+const CLIENT_ID = '269159264875-4p1ldq220ihoei495b5eg4m7voqc6a8o.apps.googleusercontent.com';
+const SESSION_KEY = 'im_proto_session';
+let me = null;
+
+/* ---------- App 內建瀏覽器提示（LINE、Facebook、Instagram） ---------- */
+(function () {
+  const ua = navigator.userAgent || '';
+  if (/Line\//i.test(ua) || /FBAN|FBAV|Instagram/i.test(ua)) {
+    document.getElementById('inapp').style.display = 'block';
+    const u = new URL(location.href);
+    if (/Line\//i.test(ua)) u.searchParams.set('openExternalBrowser', '1');
+    document.getElementById('openExternal').href = u.toString();
+  }
+})();
+
+/* ---------- 時段選單 ---------- */
+(function () {
+  const s = document.getElementById('bkStart'), e = document.getElementById('bkEnd');
+  for (let h = 8; h <= 22; h++) {
+    const t = String(h).padStart(2, '0') + ':00';
+    if (h < 22) s.add(new Option(t, t));
+    if (h > 8) e.add(new Option(t, t));
+  }
+  s.value = '10:00'; e.value = '12:00';
+})();
+
+/* ---------- 共用：呼叫後端 ---------- */
+async function api(action, body) {
+  const payload = Object.assign({ action: action }, body || {});
+  if (action !== 'login' && !('session' in payload)) payload.session = sessionStorage.getItem(SESSION_KEY);
+  const t0 = performance.now();
+  try {
+    // 用 text/plain 送出 JSON，避免瀏覽器先發預檢請求（Apps Script 不支援）；憑證放在內容，不放網址
+    const resp = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow', credentials: 'omit' });
+    const data = await resp.json();
+    data._ms = Math.round(performance.now() - t0);
+    return data;
+  } catch (err) {
+    return { ok: false, error: 'NETWORK', message: '無法連線到後端：' + err.message, _ms: Math.round(performance.now() - t0) };
+  }
+}
+
+function log(label, r, cls) {
+  const li = document.createElement('li');
+  const t = document.createElement('span'); t.className = 't';
+  t.textContent = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+  const s = document.createElement('span');
+  s.className = cls || (r.ok ? 'ok' : 'bad');
+  s.textContent = (r.ok ? '成功' : '失敗') + '｜' + label + '：';
+  const m = document.createElement('span');
+  m.textContent = (r.message || r.error || '') +
+    (r._ms !== undefined ? '（總耗時 ' + (r._ms / 1000).toFixed(1) + ' 秒' + (r.serverMs !== undefined ? '，後端 ' + (r.serverMs / 1000).toFixed(1) + ' 秒' : '') + '）' : '') +
+    (r.remainingQuota !== undefined ? '　今日剩餘寄信額度：' + r.remainingQuota : '');
+  li.append(t, s, m);
+  document.getElementById('log').prepend(li);
+}
+
+/* ---------- Google 登入 ---------- */
+function initGoogle() {
+  google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onGoogleCredential, auto_select: false, cancel_on_tap_outside: true });
+  google.accounts.id.renderButton(document.getElementById('gsiButton'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'zh-TW' });
+  document.getElementById('gsiStatus').textContent = '請按上方按鈕，以 Google 帳號登入（原型期間只有列入測試名單的帳號能登入）。';
+  if (sessionStorage.getItem(SESSION_KEY)) doMe(true);
+}
+
+async function onGoogleCredential(resp) {
+  document.getElementById('gsiStatus').textContent = '已取得 Google 登入憑證，正在由後端驗證…';
+  const r = await api('login', { idToken: resp.credential });
+  log('登入（後端驗證 Google 憑證）', r);
+  if (r.ok) { sessionStorage.setItem(SESSION_KEY, r.session); showMe(r.user, r.initialized); }
+  else document.getElementById('gsiStatus').textContent = '登入失敗：' + (r.message || r.error);
+}
+
+function showMe(u, initialized) {
+  me = u;
+  const isAdmin = u.roles.indexOf('SYS_ADMIN') >= 0;
+  const statusText = { PENDING: '待審核', ACTIVE: '已啟用', SUSPENDED: '停用' };
+  const roleText = { SYS_ADMIN: '系統管理員', OFFICE_ADMIN: '系辦日常管理者' };
+  document.getElementById('meName').textContent = u.name;
+  document.getElementById('meEmail').textContent = u.email;
+  document.getElementById('meId').textContent = u.userId;
+  document.getElementById('meStatus').textContent = statusText[u.status] || u.status;
+  document.getElementById('meRoles').textContent = u.roles.length ? u.roles.map(x => roleText[x] || x).join('、') : '（無）';
+  document.getElementById('meSchool').textContent = u.schoolEmail ? u.schoolEmail + (u.schoolEmailVerified ? '（已驗證）' : '（未驗證）') : '（未設定）';
+  document.getElementById('gsiStatus').textContent = '已登入。';
+  ['meBox', 'testBox', 'bookBox', 'schoolBox'].forEach(id => document.getElementById(id).classList.remove('hidden'));
+  document.getElementById('adminBox').classList.toggle('hidden', !isAdmin);
+  document.getElementById('setupBox').classList.toggle('hidden', !!initialized);
+}
+
+async function doMe(silent) {
+  const r = await api('me');
+  if (!silent || !r.ok) log('讀取我的資料', r);
+  if (r.ok) showMe(r.user, r.initialized); else sessionStorage.removeItem(SESSION_KEY);
+}
+
+async function doLogout() {
+  const r = await api('logout');
+  log('登出', r);
+  sessionStorage.removeItem(SESSION_KEY);
+  if (window.google) google.accounts.id.disableAutoSelect();
+  me = null;
+  ['meBox', 'testBox', 'bookBox', 'schoolBox', 'adminBox', 'setupBox'].forEach(id => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('gsiStatus').textContent = '已登出。如需再測試，請重新登入。';
+}
+
+/* ---------- 初始化與權限 ---------- */
+async function doClaim() {
+  const code = document.getElementById('setupCode').value;
+  const r = await api('claimAdmin', { code: code });
+  document.getElementById('setupCode').value = '';
+  log('首位系統管理員初始化', r);
+  if (r.ok) doMe(true);
+}
+async function doAdminPing() { log('呼叫僅系統管理員功能', await api('adminPing')); }
+async function doFakeSession() {
+  const r = await api('adminPing', { session: 'fake-' + Math.random().toString(16).slice(2) });
+  log('偽造登入代碼呼叫（應被拒）', r, r.ok ? 'bad' : 'ok');
+}
+
+/* ---------- 預約 ---------- */
+function slot() {
+  const d = document.getElementById('bkDate').value;
+  return { slotStart: d + 'T' + document.getElementById('bkStart').value, slotEnd: d + 'T' + document.getElementById('bkEnd').value };
+}
+function newKey() { return 'k-' + crypto.randomUUID(); }
+
+async function doBook(simulate) {
+  const r = await api('book', Object.assign({ submissionKey: newKey(), simulate: simulate || 'none' }, slot()));
+  const label = simulate === 'rollback' ? '模擬中斷（自動還原）' : simulate === 'no_rollback' ? '模擬中斷（不還原）' : '預約 ' + slot().slotStart.replace('T', ' ') + '–' + slot().slotEnd.slice(11);
+  log(label, r, simulate ? (r.error === 'WRITE_FAILED' || r.error === 'INTERRUPTED_NO_ROLLBACK' ? 'warn' : 'bad') : undefined);
+}
+
+async function doDoubleSubmit() {
+  const key = newKey();
+  const body = Object.assign({ submissionKey: key }, slot());
+  const rs = await Promise.all([api('book', body), api('book', body)]);
+  const created = rs.filter(r => r.ok && !r.duplicate).length;
+  const dup = rs.filter(r => r.ok && r.duplicate).length;
+  log('同一筆連按兩次', { ok: created <= 1, message: '新建立 ' + created + ' 筆、判定重複 ' + dup + ' 筆（預期：最多建立 1 筆）', _ms: Math.max(rs[0]._ms, rs[1]._ms) });
+}
+
+async function doBurst() {
+  const s = slot();
+  const t0 = performance.now();
+  const rs = await Promise.all(Array.from({ length: 20 }, () => api('book', Object.assign({ submissionKey: newKey() }, s))));
+  const okN = rs.filter(r => r.ok).length, conflict = rs.filter(r => r.error === 'CONFLICT').length, busy = rs.filter(r => r.error === 'BUSY').length, other = 20 - okN - conflict - busy;
+  log('同時送出 20 次', { ok: okN <= 1, message: '成功 ' + okN + '、時段已被預約 ' + conflict + '、系統忙碌 ' + busy + '、其他 ' + other + '（預期：成功最多 1 筆）', _ms: Math.round(performance.now() - t0) });
+}
+
+async function doList() {
+  const r = await api('listBookings');
+  log('查看已預約時段', Object.assign({}, r, { message: r.ok ? '共 ' + r.bookings.length + ' 筆' + (r.isAdmin ? '；未完成寫入 ' + r.pendingWrites + ' 筆' : '') : r.message }));
+  const box = document.getElementById('bookTable');
+  box.textContent = '';
+  if (!r.ok) return;
+  const tbl = document.createElement('table');
+  const head = ['日期', '時段', '狀態', '是我預約的'].concat(r.isAdmin ? ['預約人（僅管理員可見）', '預約編號'] : []);
+  const tr = tbl.insertRow(); head.forEach(h => { const th = document.createElement('th'); th.textContent = h; tr.append(th); });
+  r.bookings.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1).forEach(b => {
+    const row = tbl.insertRow();
+    [b.slotStart.slice(0, 10), b.slotStart.slice(11) + '–' + b.slotEnd.slice(11), b.status, b.mine ? '是' : ''].concat(r.isAdmin ? [b.userName, b.bookingId] : [])
+      .forEach(v => { row.insertCell().textContent = v; });
+  });
+  box.append(tbl);
+}
+
+/* ---------- 管理員工具 ---------- */
+async function doRecover() {
+  const r = await api('recover');
+  log('執行寫入檢查與還原', Object.assign({}, r, { message: (r.message || '') + (r.fixed && r.fixed.length ? '：' + r.fixed.join('、') : '') }));
+}
+async function doMail() { log('寄測試信', await api('sendTestMail')); }
+async function doReset() {
+  if (!confirm('確定要清除所有測試預約嗎？（只影響測試預約表）')) return;
+  log('清除測試預約', await api('resetBookings'));
+}
+
+/* ---------- 學校 Email ---------- */
+async function doSendCode() { log('寄送學校 Email 驗證碼', await api('sendSchoolCode', { email: document.getElementById('schoolEmail').value })); }
+async function doVerifyCode() {
+  const r = await api('verifySchoolCode', { code: document.getElementById('schoolCode').value });
+  document.getElementById('schoolCode').value = '';
+  log('驗證學校 Email', r);
+  if (r.ok) doMe(true);
+}
+
+/* ---------- 啟動：Google 登入程式庫載入完成後建立按鈕 ---------- */
+if (window.google && google.accounts && google.accounts.id) initGoogle();
+else window.onGoogleLibraryLoad = initGoogle;
+setTimeout(function () {
+  if (!(window.google && google.accounts && google.accounts.id)) {
+    document.getElementById('gsiStatus').textContent = 'Google 登入按鈕載入失敗，請確認網路連線，或改用 Chrome／Safari 開啟本頁。';
+  }
+}, 10000);
+</script>
 </body>
 </html>
