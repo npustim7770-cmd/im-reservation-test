@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>借用系統原型（測試環境）</title>
-<!-- 工管系場地及設備借用系統｜技術驗證原型前端 prototype-0.2（2026-10-23）
+<!-- 工管系場地及設備借用系統｜技術驗證原型前端 prototype-0.3（2026-10-25）
      本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -48,7 +48,7 @@
 </div>
 <main>
   <h1>工管系場地及設備借用系統｜技術驗證原型</h1>
-  <p class="sub">版本 prototype-0.2 · 每個按鈕的結果與耗時會記錄在最下方「測試紀錄」，請依測試表逐項操作。</p>
+  <p class="sub">版本 prototype-0.3 · 每個按鈕的結果與耗時會記錄在最下方「測試紀錄」，請依測試表逐項操作。</p>
 
   <section id="loginBox">
     <h2>1. 登入</h2>
@@ -154,8 +154,12 @@
     </div>
     <div class="row">
       <input id="schoolCode" inputmode="numeric" maxlength="6" placeholder="6 位數驗證碼" autocomplete="one-time-code">
-      <button onclick="doVerifyCode()">驗證</button>
+      <button id="verifyBtn" onclick="doVerifyCode()">驗證</button>
     </div>
+    <div class="row">
+      <button onclick="doParallelWrong()">補測：同時送出 6 次錯誤驗證碼</button>
+    </div>
+    <p class="note">同時送出 6 次錯誤驗證碼，用來確認系統不會漏算錯誤次數。預期：5 次「驗證碼錯誤」、1 次「錯誤次數過多」。</p>
   </section>
 
   <section>
@@ -371,10 +375,26 @@ async function doReset() {
 /* ---------- 學校 Email ---------- */
 async function doSendCode() { log('寄送學校 Email 驗證碼', await api('sendSchoolCode', { email: document.getElementById('schoolEmail').value })); }
 async function doVerifyCode() {
-  const r = await api('verifySchoolCode', { code: document.getElementById('schoolCode').value });
-  document.getElementById('schoolCode').value = '';
-  log('驗證學校 Email', r);
-  if (r.ok) doMe(true);
+  const btn = document.getElementById('verifyBtn');
+  btn.disabled = true;                       // 等待結果時不可重按，避免同時送出
+  try {
+    const r = await api('verifySchoolCode', { code: document.getElementById('schoolCode').value });
+    document.getElementById('schoolCode').value = '';
+    log('驗證學校 Email', r);
+    if (r.ok) doMe(true);
+  } finally { btn.disabled = false; }
+}
+
+async function doParallelWrong() {
+  const t0 = performance.now();
+  const rs = await Promise.all(Array.from({ length: 6 }, () => api('verifySchoolCode', { code: '000000' })));
+  const cnt = k => rs.filter(r => r.error === k).length;
+  const wrong = cnt('WRONG_CODE'), many = cnt('TOO_MANY'), none = cnt('NO_CODE'), busy = cnt('BUSY'), okN = rs.filter(r => r.ok).length;
+  const pass = okN === 0 && wrong <= 5;
+  log('同時送出 6 次錯誤驗證碼', { ok: pass,
+    message: '驗證碼錯誤 ' + wrong + '、錯誤次數過多 ' + many + '、驗證碼不存在 ' + none + '、系統忙碌 ' + busy + '、成功 ' + okN +
+      '（剩餘次數依序：' + rs.filter(r => r.error === 'WRONG_CODE').map(r => (r.message.match(/剩 (\d) 次/) || [])[1]).join('、') + '）',
+    _ms: Math.round(performance.now() - t0) });
 }
 
 /* ---------- 補測 A：不合格的 Google 憑證 ---------- */
