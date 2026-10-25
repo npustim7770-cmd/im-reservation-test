@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>借用系統 2.2（測試環境）</title>
+<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.1
+     本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
+<link rel="stylesheet" href="styles.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<div class="banner">測試環境：本頁僅供 2.2 開發驗收，只使用測試帳號與虛擬資料</div>
+<div class="inapp" id="inapp">
+  您正在 App 內建瀏覽器中開啟，Google 可能不允許在這裡登入。
+  <a id="openExternal" href="#">請改用手機瀏覽器開啟</a>（或按右上角「⋯」選擇「以瀏覽器開啟」）。
+</div>
+<main>
+  <h1>工管系場地及設備借用管理系統</h1>
+  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.1</span> · 項目 1：測試環境與資料底層</p>
+
+  <section id="loginBox">
+    <h2>登入</h2>
+    <div id="gsiButton"></div>
+    <p class="note" id="gsiStatus">正在載入 Google 登入按鈕…</p>
+  </section>
+
+  <section id="meBox" class="hidden">
+    <h2>目前登入者</h2>
+    <dl class="who">
+      <dt>姓名</dt><dd id="meName"></dd>
+      <dt>Google Email</dt><dd id="meEmail"></dd>
+      <dt>使用者編號</dt><dd id="meId"></dd>
+      <dt>帳號狀態</dt><dd id="meStatus"></dd>
+      <dt>角色</dt><dd id="meRoles"></dd>
+      <dt>學校 Email</dt><dd id="meSchool"></dd>
+    </dl>
+    <div class="row">
+      <button onclick="doMe()">重新讀取我的資料</button>
+      <button onclick="doLogout()">登出</button>
+    </div>
+  </section>
+
+  <section id="setupBox" class="hidden">
+    <h2>首位系統管理員初始化</h2>
+    <p class="note">只有系辦指定的帳號，輸入系辦產生的設定碼才會成功。設定碼請不要貼到任何對話中。</p>
+    <div class="row">
+      <input id="setupCode" placeholder="XXXX-XXXX-XXXX" autocomplete="off" maxlength="20">
+      <button class="primary" onclick="doClaim()">送出設定碼</button>
+    </div>
+  </section>
+
+  <section id="statusBox" class="hidden admin-only">
+    <h2>A. 系統狀態</h2>
+    <div class="row"><button onclick="doStatus()">讀取系統狀態</button></div>
+    <div id="statusTable"></div>
+  </section>
+
+  <section id="perfBox" class="hidden admin-only">
+    <h2>B. 效能測試</h2>
+    <p class="note">每項連續做 5 次，取最慢一次判定。標準：讀取目標 2 秒、上限 4 秒；寫入與登入目標 3 秒、上限 5 秒（以「總耗時」計）。</p>
+    <div class="row">
+      <button onclick="perfRun('read')">讀取測試 × 5</button>
+      <button onclick="perfRun('write')">寫入測試 × 5</button>
+    </div>
+    <div id="perfTable"></div>
+  </section>
+
+  <section id="concBox" class="hidden admin-only">
+    <h2>C. 多人同時寫入與重複送出</h2>
+    <p class="note">寫入測試會讓「測試計數器」加 1。正確結果：成功幾筆，計數器就剛好增加幾；沒有漏算、沒有重複。系統忙碌時會用同一個防重複代碼自動重試一次。</p>
+    <div class="row">
+      <button onclick="doConcurrent(20)">同時送出 20 次寫入</button>
+      <button onclick="doDoubleSubmit()">同一筆連按兩次送出</button>
+    </div>
+  </section>
+
+  <section id="journalBox" class="hidden admin-only">
+    <h2>D. 寫入中斷與還原</h2>
+    <p class="note">模擬中斷會在「計數器已修改、操作紀錄已新增」後故意中斷，用來確認系統會把修改改回原值、把新增刪除。</p>
+    <div class="row">
+      <button onclick="doSimulate('rollback')">模擬寫入中斷（自動還原）</button>
+      <button onclick="doSimulate('no_rollback')">模擬寫入中斷（不還原）</button>
+      <button onclick="doRecover()">執行寫入檢查與還原</button>
+      <button onclick="doSingleWrite()">一般寫入一次</button>
+    </div>
+  </section>
+
+  <section id="secBox" class="hidden">
+    <h2>E. 安全回歸測試（原型已通過的項目）</h2>
+    <p class="note">「應被拒」的測試，被拒絕時以<span class="ok">綠色</span>顯示（符合預期）；若意外成功則以<span class="bad">紅色</span>顯示。</p>
+    <h3>E1. 權限</h3>
+    <div class="row">
+      <button onclick="doAdminPing()">呼叫「僅系統管理員可用」功能</button>
+      <button onclick="doFakeSession()">用偽造的登入代碼呼叫</button>
+    </div>
+    <h3>E2. 不合格的 Google 憑證</h3>
+    <p class="note" id="credInfo">尚未保存 Google 憑證（登入一次後會自動保存，只存在本分頁）。</p>
+    <div class="row">
+      <button onclick="doTamperedCred()">送出「竄改內容」的憑證</button>
+      <button onclick="doExpiredCred()">送出「已過期」的憑證</button>
+      <button onclick="startOtherSystem()">取得「其他系統」的憑證</button>
+      <button onclick="clearSavedCred()">清除保存的憑證</button>
+    </div>
+    <div id="otherBtn"></div>
+    <h3>E3. 登出與閒置逾時</h3>
+    <p class="note" id="idleInfo">登入後顯示閒置時間。</p>
+    <div class="row">
+      <button id="oldSessBtn" onclick="doOldSession()" disabled>用剛登出的舊登入代碼呼叫</button>
+      <button onclick="doIdleCheck()">現在呼叫一次（檢查是否已逾時）</button>
+    </div>
+    <h3>E4. 學校 Email 驗證（教職員）</h3>
+    <div class="row">
+      <input id="schoolEmail" type="email" placeholder="學校 Email" class="wide">
+      <button onclick="doSendCode()">寄送驗證碼</button>
+    </div>
+    <div class="row">
+      <input id="schoolCode" inputmode="numeric" maxlength="6" placeholder="6 位數驗證碼" autocomplete="one-time-code">
+      <button id="verifyBtn" onclick="doVerifyCode()">驗證</button>
+      <button onclick="doParallelWrong()">同時送出 6 次錯誤驗證碼</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>測試紀錄</h2>
+    <p class="note">「總耗時」是從按下按鈕到收到結果；「後端」是後端程式本身的處理時間；「排隊」是等候其他操作完成的時間。</p>
+    <ul id="log"></ul>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
