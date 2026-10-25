@@ -1,5 +1,6 @@
 /**
- * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.1
+ * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.2
+ * 2.2.2：開啟頁面時先喚醒後端（只查看服務狀態，不讀寫任何資料），並顯示後端實際版本
  * 本檔只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。
  */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxlB34j2PeXcTbZREipXPfGHhw3-lw8wbMltJuBWlx0b6w7VHsG_ybw4zbWubXvO-cnpg/exec';
@@ -345,7 +346,23 @@ async function doParallelWrong() {
       '、系統忙碌 ' + cnt('BUSY') + '、成功 ' + okN + '（剩餘次數：' + left.join('、') + '）' });
 }
 
+/* ---------- 喚醒後端（減少第一次操作的等待） ---------- */
+let lastWarm = 0;
+async function warmUp() {
+  lastWarm = Date.now();
+  try {
+    const resp = await fetch(API_URL, { method: 'GET', redirect: 'follow', credentials: 'omit' });
+    const d = await resp.json();
+    if (d && d.version) document.getElementById('ver').textContent = d.version + '（後端）';
+  } catch (e) { /* 喚醒失敗不影響操作 */ }
+}
+// 頁面重新回到前景且已超過 4 分鐘未喚醒時，再喚醒一次
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && Date.now() - lastWarm > 4 * 60000) warmUp();
+});
+
 /* ---------- 啟動 ---------- */
+warmUp();
 if (window.google && google.accounts && google.accounts.id) initGoogle();
 else window.onGoogleLibraryLoad = initGoogle;
 setTimeout(function () {
