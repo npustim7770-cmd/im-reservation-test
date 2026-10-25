@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>借用系統原型（測試環境）</title>
-<!-- 工管系場地及設備借用系統｜技術驗證原型前端 prototype-0.1（2026-10-23）
+<!-- 工管系場地及設備借用系統｜技術驗證原型前端 prototype-0.2（2026-10-23）
      本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -48,7 +48,7 @@
 </div>
 <main>
   <h1>工管系場地及設備借用系統｜技術驗證原型</h1>
-  <p class="sub">版本 prototype-0.1 · 每個按鈕的結果與耗時會記錄在最下方「測試紀錄」，請依測試表逐項操作。</p>
+  <p class="sub">版本 prototype-0.2 · 每個按鈕的結果與耗時會記錄在最下方「測試紀錄」，請依測試表逐項操作。</p>
 
   <section id="loginBox">
     <h2>1. 登入</h2>
@@ -78,6 +78,32 @@
     <div class="row">
       <input id="setupCode" placeholder="XXXX-XXXX-XXXX" autocomplete="off" maxlength="20">
       <button class="primary" onclick="doClaim()">送出設定碼</button>
+    </div>
+  </section>
+
+  <section id="retestBox">
+    <h2>補測工具（prototype-0.2）</h2>
+    <p class="note">「應被拒」的測試，被拒絕時以<span class="ok">綠色</span>顯示（符合預期）；若意外成功則以<span class="bad">紅色</span>顯示。</p>
+
+    <h3 style="font-size:15px;margin:10px 0 4px">A. 不合格的 Google 憑證</h3>
+    <p class="note" id="credInfo">尚未保存 Google 憑證（登入一次後會自動保存，只存在本分頁）。</p>
+    <div class="row">
+      <button onclick="doTamperedCred()">送出「竄改內容」的憑證</button>
+      <button onclick="doExpiredCred()">送出「已過期」的憑證</button>
+      <button onclick="startOtherSystem()">取得「其他系統」的憑證</button>
+      <button onclick="clearSavedCred()">清除保存的憑證</button>
+    </div>
+    <div id="otherBtn"></div>
+
+    <h3 style="font-size:15px;margin:10px 0 4px">B. 登出後的舊登入代碼</h3>
+    <div class="row">
+      <button id="oldSessBtn" onclick="doOldSession()" disabled>用剛登出的舊登入代碼呼叫</button>
+    </div>
+
+    <h3 style="font-size:15px;margin:10px 0 4px">C. 閒置逾時</h3>
+    <p class="note" id="idleInfo">登入後顯示閒置時間。</p>
+    <div class="row">
+      <button onclick="doIdleCheck()">現在呼叫一次（檢查是否已逾時）</button>
     </div>
   </section>
 
@@ -142,8 +168,12 @@
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbzIPIRBv3GJ_OPMR44hlj51hFfZrokOeb2DETvMvHCjfbGrGHdk-SetoTSRrKsiSlfT/exec';
 const CLIENT_ID = '269159264875-4p1ldq220ihoei495b5eg4m7voqc6a8o.apps.googleusercontent.com';
+const OTHER_CLIENT_ID = '269159264875-oacpralsp395h3fji3h2mfgj2julj0v1.apps.googleusercontent.com'; // 「其他系統」補測專用
 const SESSION_KEY = 'im_proto_session';
+const CRED_KEY = 'im_proto_lastcred';   // 補測用：只存在本分頁，關閉分頁即消失
 let me = null;
+let lastActivity = 0;
+let oldSession = null;
 
 /* ---------- App 內建瀏覽器提示（LINE、Facebook、Instagram） ---------- */
 (function () {
@@ -177,6 +207,7 @@ async function api(action, body) {
     const resp = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow', credentials: 'omit' });
     const data = await resp.json();
     data._ms = Math.round(performance.now() - t0);
+    if (data.ok && action !== 'logout' && payload.session === sessionStorage.getItem(SESSION_KEY)) lastActivity = Date.now();
     return data;
   } catch (err) {
     return { ok: false, error: 'NETWORK', message: '無法連線到後端：' + err.message, _ms: Math.round(performance.now() - t0) };
@@ -210,7 +241,12 @@ async function onGoogleCredential(resp) {
   document.getElementById('gsiStatus').textContent = '已取得 Google 登入憑證，正在由後端驗證…';
   const r = await api('login', { idToken: resp.credential });
   log('登入（後端驗證 Google 憑證）', r);
-  if (r.ok) { sessionStorage.setItem(SESSION_KEY, r.session); showMe(r.user, r.initialized); }
+  if (r.ok) {
+    sessionStorage.setItem(SESSION_KEY, r.session);
+    sessionStorage.setItem(CRED_KEY, JSON.stringify({ cred: resp.credential, at: Date.now() }));
+    lastActivity = Date.now();
+    showMe(r.user, r.initialized);
+  }
   else document.getElementById('gsiStatus').textContent = '登入失敗：' + (r.message || r.error);
 }
 
@@ -238,9 +274,12 @@ async function doMe(silent) {
 }
 
 async function doLogout() {
+  oldSession = sessionStorage.getItem(SESSION_KEY);
   const r = await api('logout');
   log('登出', r);
   sessionStorage.removeItem(SESSION_KEY);
+  document.getElementById('oldSessBtn').disabled = !oldSession;
+  lastActivity = 0;
   if (window.google) google.accounts.id.disableAutoSelect();
   me = null;
   ['meBox', 'testBox', 'bookBox', 'schoolBox', 'adminBox', 'setupBox'].forEach(id => document.getElementById(id).classList.add('hidden'));
@@ -269,7 +308,15 @@ function slot() {
 function newKey() { return 'k-' + crypto.randomUUID(); }
 
 async function doBook(simulate) {
-  const r = await api('book', Object.assign({ submissionKey: newKey(), simulate: simulate || 'none' }, slot()));
+  const body = Object.assign({ submissionKey: newKey(), simulate: simulate || 'none' }, slot());
+  let r = await api('book', body);
+  if (r.error === 'BUSY') {
+    // 安全重試：用同一個防重複代碼重送，最多建立 1 筆
+    log('系統忙碌，3 秒後以同一筆申請自動重試一次', r, 'warn');
+    await new Promise(res => setTimeout(res, 3000));
+    r = await api('book', body);
+    if (r.error === 'BUSY') r.message = '系統仍忙碌，請稍後再按一次（資料未變更，重按不會重複建立）';
+  }
   const label = simulate === 'rollback' ? '模擬中斷（自動還原）' : simulate === 'no_rollback' ? '模擬中斷（不還原）' : '預約 ' + slot().slotStart.replace('T', ' ') + '–' + slot().slotEnd.slice(11);
   log(label, r, simulate ? (r.error === 'WRITE_FAILED' || r.error === 'INTERRUPTED_NO_ROLLBACK' ? 'warn' : 'bad') : undefined);
 }
@@ -280,7 +327,9 @@ async function doDoubleSubmit() {
   const rs = await Promise.all([api('book', body), api('book', body)]);
   const created = rs.filter(r => r.ok && !r.duplicate).length;
   const dup = rs.filter(r => r.ok && r.duplicate).length;
-  log('同一筆連按兩次', { ok: created <= 1, message: '新建立 ' + created + ' 筆、判定重複 ' + dup + ' 筆（預期：最多建立 1 筆）', _ms: Math.max(rs[0]._ms, rs[1]._ms) });
+  const conflict = rs.filter(r => r.error === 'CONFLICT').length;
+  const busy = rs.filter(r => r.error === 'BUSY').length;
+  log('同一筆連按兩次', { ok: created <= 1, message: '新建立 ' + created + ' 筆、判定重複 ' + dup + ' 筆、時段已被預約 ' + conflict + ' 筆、系統忙碌 ' + busy + ' 筆（預期：最多建立 1 筆）', _ms: Math.max(rs[0]._ms, rs[1]._ms) });
 }
 
 async function doBurst() {
@@ -327,6 +376,93 @@ async function doVerifyCode() {
   log('驗證學校 Email', r);
   if (r.ok) doMe(true);
 }
+
+/* ---------- 補測 A：不合格的 Google 憑證 ---------- */
+function savedCred() {
+  try { return JSON.parse(sessionStorage.getItem(CRED_KEY) || 'null'); } catch (e) { return null; }
+}
+function b64uDec(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+function b64uEnc(bytes) {
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+// 送出「應被拒」的憑證：被拒＝綠色（符合預期）；意外成功＝紅色，且不採用該登入
+async function sendBadCred(label, cred) {
+  const r = await api('login', { idToken: cred });
+  if (r.ok) {
+    log(label + '（應被拒，卻被接受！）', { ok: false, message: '不符預期，請截圖告知開發者', _ms: r._ms }, 'bad');
+  } else {
+    log(label + '（應被拒）', r, 'ok');
+  }
+}
+async function doTamperedCred() {
+  const s = savedCred();
+  if (!s) { log('竄改憑證', { ok: false, message: '尚未保存憑證，請先登出再登入一次' }); return; }
+  const p = s.cred.split('.');
+  const body = JSON.parse(new TextDecoder().decode(b64uDec(p[1])));
+  body.email = 'attacker@example.com';
+  body.name = '竄改測試';
+  p[1] = b64uEnc(new TextEncoder().encode(JSON.stringify(body)));
+  await sendBadCred('竄改內容的憑證（改為 attacker@example.com）', p.join('.'));
+}
+async function doExpiredCred() {
+  const s = savedCred();
+  if (!s) { log('過期憑證', { ok: false, message: '尚未保存憑證，請先登入一次' }); return; }
+  const min = Math.floor((Date.now() - s.at) / 60000);
+  if (min < 61) {
+    log('過期憑證', { ok: false, message: '這張憑證取得才 ' + min + ' 分鐘，Google 憑證約 60 分鐘後過期；請在超過 61 分鐘後再按' }, 'warn');
+    return;
+  }
+  await sendBadCred('已過期的憑證（取得後 ' + min + ' 分鐘）', s.cred);
+}
+function clearSavedCred() {
+  sessionStorage.removeItem(CRED_KEY);
+  log('清除保存的憑證', { ok: true, message: '已清除本分頁保存的 Google 憑證' });
+}
+function startOtherSystem() {
+  google.accounts.id.initialize({ client_id: OTHER_CLIENT_ID, callback: onOtherCredential, auto_select: false });
+  google.accounts.id.renderButton(document.getElementById('otherBtn'), { theme: 'filled_black', size: 'medium', text: 'continue_with', locale: 'zh-TW' });
+  log('其他系統憑證', { ok: true, message: '已顯示「其他系統」的黑色登入按鈕，請按它並選擇帳號' }, 'warn');
+}
+async function onOtherCredential(resp) {
+  document.getElementById('otherBtn').textContent = '';
+  await sendBadCred('發給其他系統的憑證', resp.credential);
+  google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onGoogleCredential, auto_select: false, cancel_on_tap_outside: true });
+}
+
+/* ---------- 補測 B：登出後的舊登入代碼 ---------- */
+async function doOldSession() {
+  const r = await api('me', { session: oldSession });
+  log('用登出後的舊登入代碼呼叫（應被拒）', r, r.ok ? 'bad' : 'ok');
+}
+
+/* ---------- 補測 C：閒置逾時 ---------- */
+async function doIdleCheck() {
+  const idleSec = lastActivity ? Math.round((Date.now() - lastActivity) / 1000) : 0;
+  const r = await api('me');
+  log('閒置 ' + Math.floor(idleSec / 60) + ' 分 ' + (idleSec % 60) + ' 秒後呼叫', r, r.ok ? 'ok' : (r.reason === '閒置逾時' ? 'ok' : 'bad'));
+  if (r.ok) { showMe(r.user, r.initialized); return; }
+  sessionStorage.removeItem(SESSION_KEY);
+  lastActivity = 0;
+  document.getElementById('gsiStatus').textContent = '登入已失效（' + (r.reason || r.error) + '），請重新登入。';
+}
+setInterval(function () {
+  const s = savedCred();
+  document.getElementById('credInfo').textContent = s
+    ? '已保存 Google 憑證：取得於 ' + new Date(s.at).toLocaleTimeString('zh-TW', { hour12: false }) + '，已過 ' + Math.floor((Date.now() - s.at) / 60000) + ' 分鐘（超過 61 分鐘才能測「已過期」）。'
+    : '尚未保存 Google 憑證（登入一次後會自動保存，只存在本分頁）。';
+  if (lastActivity && sessionStorage.getItem(SESSION_KEY)) {
+    const sec = Math.round((Date.now() - lastActivity) / 1000);
+    document.getElementById('idleInfo').textContent = '上次成功操作：' + new Date(lastActivity).toLocaleTimeString('zh-TW', { hour12: false }) + '，已閒置 ' + Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒。';
+  } else {
+    document.getElementById('idleInfo').textContent = '登入後顯示閒置時間。';
+  }
+}, 1000);
 
 /* ---------- 啟動：Google 登入程式庫載入完成後建立按鈕 ---------- */
 if (window.google && google.accounts && google.accounts.id) initGoogle();
