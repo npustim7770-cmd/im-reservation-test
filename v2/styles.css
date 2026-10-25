@@ -1,0 +1,32 @@
+/* 工管系場地及設備借用管理系統｜2.2 前端樣式（2.2.1） */
+:root { --red:#c62828; --ink:#1f2328; --mute:#57606a; --line:#d0d7de; --bg:#f6f8fa; --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; --blue:#0969da; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif; color:var(--ink); background:#fff; line-height:1.6; }
+.banner { background:var(--red); color:#fff; padding:10px 16px; font-weight:700; position:sticky; top:0; z-index:10; }
+.inapp { display:none; background:#fff4ce; border-bottom:1px solid #e3c25b; padding:10px 16px; }
+main { max-width:900px; margin:0 auto; padding:16px; }
+h1 { font-size:20px; margin:8px 0 4px; }
+h2 { font-size:16px; margin:0 0 8px; }
+h3 { font-size:15px; margin:12px 0 4px; }
+.sub { color:var(--mute); font-size:13px; margin:0 0 16px; }
+section { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:0 0 14px; }
+.row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:6px 0; }
+button { font:inherit; font-size:14px; padding:7px 12px; border:1px solid var(--line); border-radius:6px; background:var(--bg); cursor:pointer; }
+button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+input { font:inherit; font-size:14px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
+input.wide { min-width:240px; }
+.who { display:grid; grid-template-columns:max-content 1fr; gap:2px 12px; font-size:14px; }
+.who dt { color:var(--mute); }
+.who dd { margin:0; word-break:break-all; }
+.note { font-size:13px; color:var(--mute); }
+#log { list-style:none; padding:0; margin:0; font-size:13px; max-height:460px; overflow:auto; }
+#log li { border-bottom:1px solid var(--line); padding:6px 2px; }
+#log .t { color:var(--mute); margin-right:6px; }
+.ok { color:var(--ok); font-weight:700; }
+.bad { color:var(--bad); font-weight:700; }
+.warn { color:var(--warn); font-weight:700; }
+table { border-collapse:collapse; width:100%; font-size:13px; margin-top:6px; }
+th, td { border-bottom:1px solid var(--line); text-align:left; padding:4px 6px; vertical-align:top; }
+.hidden { display:none; }
+@media (max-width:520px) { main { padding:12px; } input.wide { min-width:0; width:100%; } }
