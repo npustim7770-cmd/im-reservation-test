@@ -1,6 +1,7 @@
 /**
- * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.2
+ * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.4
  * 2.2.2：開啟頁面時先喚醒後端（只查看服務狀態，不讀寫任何資料），並顯示後端實際版本
+ * 2.2.4：送出與儲存時顯示「處理中」提示並暫停所有按鈕（防止重複送出）；記錄每次登入的耗時與驗證方式
  * 本檔只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。
  */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxlB34j2PeXcTbZREipXPfGHhw3-lw8wbMltJuBWlx0b6w7VHsG_ybw4zbWubXvO-cnpg/exec';
@@ -12,6 +13,32 @@ const TARGET = { read: { goal: 2000, limit: 4000 }, write: { goal: 3000, limit: 
 let me = null;
 let lastActivity = 0;
 let oldSession = null;
+const LOGIN_RUNS_KEY = 'im22_loginRuns';   // 登入計時紀錄（只存在本分頁，不含任何憑證）
+
+/* ---------- 處理中提示（送出、儲存、登入時顯示，並暫停所有按鈕） ---------- */
+const WRITE_ACTIONS = { login: '正在驗證 Google 登入', logout: '正在登出', claimAdmin: '正在送出設定碼',
+  testWrite: '資料儲存中', recover: '正在檢查並還原', sendSchoolCode: '正在寄送驗證碼', verifySchoolCode: '正在驗證' };
+let busyCount = 0, busyStart = 0, busyTimer = null;
+function busyOn(action) {
+  busyCount++;
+  if (busyCount > 1) return;
+  busyStart = Date.now();
+  const bar = document.getElementById('busy');
+  const label = WRITE_ACTIONS[action] || '處理中';
+  const paint = () => { bar.textContent = '⏳ ' + label + '，請稍候…（已 ' + Math.floor((Date.now() - busyStart) / 1000) + ' 秒）請勿關閉或重新整理頁面'; };
+  paint();
+  bar.classList.add('show');
+  busyTimer = setInterval(paint, 500);
+  document.querySelectorAll('main button').forEach(b => { if (!b.disabled) { b.disabled = true; b.dataset.busyLock = '1'; } });
+}
+function busyOff() {
+  busyCount = Math.max(0, busyCount - 1);
+  if (busyCount > 0) return;
+  clearInterval(busyTimer);
+  document.getElementById('busy').classList.remove('show');
+  document.querySelectorAll('main button[data-busy-lock]').forEach(b => { b.disabled = false; delete b.dataset.busyLock; });
+}
+window.addEventListener('beforeunload', function (e) { if (busyCount > 0) { e.preventDefault(); e.returnValue = ''; } });
 
 /* ---------- App 內建瀏覽器提示 ---------- */
 (function () {
@@ -29,6 +56,8 @@ async function api(action, body) {
   const payload = Object.assign({ action: action }, body || {});
   if (action !== 'login' && !('session' in payload)) payload.session = sessionStorage.getItem(SESSION_KEY);
   const t0 = performance.now();
+  const isWrite = action in WRITE_ACTIONS;
+  if (isWrite) busyOn(action);
   try {
     // 以 text/plain 送出 JSON，避免瀏覽器預檢請求；憑證放在內容，不放網址
     const resp = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -39,6 +68,8 @@ async function api(action, body) {
     return data;
   } catch (err) {
     return { ok: false, error: 'NETWORK', message: '無法連線到後端：' + err.message, _ms: Math.round(performance.now() - t0) };
+  } finally {
+    if (isWrite) busyOff();
   }
 }
 
@@ -70,11 +101,13 @@ function log(label, r, cls) {
   if (r._ms !== undefined) parts.push('總耗時 ' + sec(r._ms) + ' 秒');
   if (r.serverMs !== undefined) parts.push('後端 ' + sec(r.serverMs) + ' 秒');
   if (r.lockWaitMs) parts.push('排隊 ' + sec(r.lockWaitMs) + ' 秒');
+  if (r.verifyMethod) parts.push(methodText(r.verifyMethod) + (r.loginPath ? '、' + (r.loginPath === 'FAST' ? '快速登入' : '完整登入') : ''));
   m.textContent = (r.message || r.error || '') + (parts.length ? '（' + parts.join('，') + '）' : '') +
     (r.remainingQuota !== undefined ? '　今日剩餘寄信額度：' + r.remainingQuota : '');
   li.append(t, s, m);
   document.getElementById('log').prepend(li);
 }
+function methodText(m) { return m === 'LOCAL' ? '後端驗證簽章' : m === 'TOKENINFO_FALLBACK' ? '改用 Google 查驗' : m; }
 function newKey() { return 'k-' + crypto.randomUUID(); }
 
 /* ---------- Google 登入 ---------- */
@@ -86,9 +119,11 @@ function initGoogle() {
 }
 
 async function onGoogleCredential(resp) {
+  if (busyCount > 0) return;            // 前一個操作尚未完成，不重複送出登入
   document.getElementById('gsiStatus').textContent = '已取得 Google 登入憑證，正在由後端驗證…';
   const r = await api('login', { idToken: resp.credential });
   log('登入（後端驗證 Google 憑證）', r);
+  if (r.ok) recordLogin(r);
   if (r.ok) {
     sessionStorage.setItem(SESSION_KEY, r.session);
     sessionStorage.setItem(CRED_KEY, JSON.stringify({ cred: resp.credential, at: Date.now() }));
@@ -161,7 +196,8 @@ async function doStatus() {
     ['首位系統管理員初始化', r.initialized ? '已完成' : '尚未完成'], ['用戶端 ID', r.clientIdSet ? '已設定' : '尚未設定'],
     ['學校 Email 網域', r.staffDomains || '（尚未設定）'], ['本系系所', r.homeDept], ['閒置逾時', r.idleMinutes + ' 分鐘'],
     ['未完成寫入', r.pendingWrites + ' 筆'], ['欄位標題檢查', r.headerProblems.length ? '異常：' + r.headerProblems.join('、') : '正常'],
-    ['測試計數器', String(r.testCounter)]
+    ['測試計數器', String(r.testCounter)],
+    ['Google 公開金鑰快取', r.jwksKeys ? r.jwksKeys + ' 把（下載於 ' + r.jwksFetchedAt + '）' : '目前沒有（下次登入時自動下載）']
   ].concat(Object.keys(r.counts).map(k => ['資料筆數：' + k, String(r.counts[k])]));
   box.append(table(['項目', '內容'], rows));
 }
@@ -195,7 +231,35 @@ async function perfRun(kind) {
 function renderPerf() {
   const box = document.getElementById('perfTable');
   box.textContent = '';
-  box.append(table(['項目', '5 次總耗時（秒）', '最慢（秒）', '後端（秒）', '目標／上限（秒）', '判定'], Object.values(perfResults)));
+  const rows = Object.values(perfResults);
+  const lr = loginRuns();
+  if (lr.length) {
+    const worst = Math.max(...lr.map(x => x.ms));
+    const t = TARGET.login;
+    const verdict = lr.length < 5 ? '已測 ' + lr.length + ' 次，需 5 次才判定' :
+      worst <= t.goal ? '達到目標' : worst <= t.limit ? '未達目標但在上限內（驗收通過）' : '超過上限（驗收不通過）';
+    rows.push(['登入（最近 ' + lr.length + ' 次）', lr.map(x => sec(x.ms)).join('、'), sec(worst),
+      lr.map(x => sec(x.server) + (x.method === 'LOCAL' ? '' : '＊')).join('、'), sec(t.goal) + '／' + sec(t.limit), verdict]);
+  }
+  if (!rows.length) return;
+  box.append(table(['項目', '5 次總耗時（秒）', '最慢（秒）', '後端（秒）', '目標／上限（秒）', '判定'], rows));
+  if (lr.some(x => x.method !== 'LOCAL')) {
+    const n = document.createElement('p'); n.className = 'note'; n.textContent = '＊ 該次改用 Google 查驗（後端無法自行驗證時的備援方式）。'; box.append(n);
+  }
+}
+
+/* ---------- 登入計時（每次成功登入自動記錄，保留最近 5 次） ---------- */
+function loginRuns() { try { return JSON.parse(sessionStorage.getItem(LOGIN_RUNS_KEY) || '[]'); } catch (e) { return []; } }
+function recordLogin(r) {
+  const runs = loginRuns();
+  runs.push({ ms: r._ms, server: r.serverMs, method: r.verifyMethod, path: r.loginPath, at: Date.now() });
+  try { sessionStorage.setItem(LOGIN_RUNS_KEY, JSON.stringify(runs.slice(-5))); } catch (e) { /* 無法保存時略過 */ }
+  renderPerf();
+}
+function clearLoginRuns() {
+  try { sessionStorage.removeItem(LOGIN_RUNS_KEY); } catch (e) { /* 略過 */ }
+  renderPerf();
+  log('清除登入計時紀錄', { ok: true, message: '已清除，接下來 5 次登入會重新計時' });
 }
 
 /* ---------- C. 多人同時寫入與重複送出 ---------- */
@@ -363,6 +427,7 @@ document.addEventListener('visibilitychange', function () {
 
 /* ---------- 啟動 ---------- */
 warmUp();
+renderPerf();
 if (window.google && google.accounts && google.accounts.id) initGoogle();
 else window.onGoogleLibraryLoad = initGoogle;
 setTimeout(function () {

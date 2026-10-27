@@ -4,20 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>借用系統 2.2（測試環境）</title>
-<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.1
+<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.4
      本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
 <link rel="stylesheet" href="styles.css">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div class="banner">測試環境：本頁僅供 2.2 開發驗收，只使用測試帳號與虛擬資料</div>
+<div class="busy" id="busy" role="status" aria-live="polite"></div>
 <div class="inapp" id="inapp">
   您正在 App 內建瀏覽器中開啟，Google 可能不允許在這裡登入。
   <a id="openExternal" href="#">請改用手機瀏覽器開啟</a>（或按右上角「⋯」選擇「以瀏覽器開啟」）。
 </div>
 <main>
   <h1>工管系場地及設備借用管理系統</h1>
-  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.1</span> · 項目 1：測試環境與資料底層</p>
+  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.4</span> · 項目 1：測試環境與資料底層</p>
 
   <section id="loginBox">
     <h2>登入</h2>
@@ -58,10 +59,11 @@
 
   <section id="perfBox" class="hidden admin-only">
     <h2>B. 效能測試</h2>
-    <p class="note">每項連續做 5 次，取最慢一次判定。標準：讀取目標 2 秒、上限 4 秒；寫入與登入目標 3 秒、上限 5 秒（以「總耗時」計）。</p>
+    <p class="note">每項連續做 5 次，取最慢一次判定。標準：讀取目標 2 秒、上限 4 秒；寫入與登入目標 3 秒、上限 5 秒（以「總耗時」計）。登入不需按鈕：每次成功登入會自動記錄，保留最近 5 次。</p>
     <div class="row">
       <button onclick="perfRun('read')">讀取測試 × 5</button>
       <button onclick="perfRun('write')">寫入測試 × 5</button>
+      <button onclick="clearLoginRuns()">清除登入計時紀錄</button>
     </div>
     <div id="perfTable"></div>
   </section>
