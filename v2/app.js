@@ -1,7 +1,9 @@
 /**
- * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.4
+ * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.6
  * 2.2.2：開啟頁面時先喚醒後端（只查看服務狀態，不讀寫任何資料），並顯示後端實際版本
  * 2.2.4：送出與儲存時顯示「處理中」提示並暫停所有按鈕（防止重複送出）；記錄每次登入的耗時與驗證方式
+ * 2.2.6：登入分項計時；快速登入與完整登入（含每天第一次）分開統計
+ * 2.2.5：總耗時異常時，分段顯示「開始前等待／程式處理／試算表存檔／結束後等待」；閒置逾時後可用舊代碼再測一次
  * 本檔只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。
  */
 const API_URL = 'https://script.google.com/macros/s/AKfycbxlB34j2PeXcTbZREipXPfGHhw3-lw8wbMltJuBWlx0b6w7VHsG_ybw4zbWubXvO-cnpg/exec';
@@ -13,12 +15,13 @@ const TARGET = { read: { goal: 2000, limit: 4000 }, write: { goal: 3000, limit: 
 let me = null;
 let lastActivity = 0;
 let oldSession = null;
-const LOGIN_RUNS_KEY = 'im22_loginRuns';   // 登入計時紀錄（只存在本分頁，不含任何憑證）
+const LOGIN_RUNS_KEY = 'im22_loginRuns2';  // 登入計時紀錄（存在本瀏覽器，只有時間數字，不含任何憑證）
 
 /* ---------- 處理中提示（送出、儲存、登入時顯示，並暫停所有按鈕） ---------- */
 const WRITE_ACTIONS = { login: '正在驗證 Google 登入', logout: '正在登出', claimAdmin: '正在送出設定碼',
   testWrite: '資料儲存中', recover: '正在檢查並還原', sendSchoolCode: '正在寄送驗證碼', verifySchoolCode: '正在驗證' };
 let busyCount = 0, busyStart = 0, busyTimer = null;
+let clockOffset = null;   // 後端時鐘 − 本機時鐘（毫秒，由喚醒後端時估算；僅供診斷計時）
 function busyOn(action) {
   busyCount++;
   if (busyCount > 1) return;
@@ -56,6 +59,7 @@ async function api(action, body) {
   const payload = Object.assign({ action: action }, body || {});
   if (action !== 'login' && !('session' in payload)) payload.session = sessionStorage.getItem(SESSION_KEY);
   const t0 = performance.now();
+  const sentAt = Date.now();
   const isWrite = action in WRITE_ACTIONS;
   if (isWrite) busyOn(action);
   try {
@@ -64,6 +68,10 @@ async function api(action, body) {
       body: JSON.stringify(payload), redirect: 'follow', credentials: 'omit' });
     const data = await resp.json();
     data._ms = Math.round(performance.now() - t0);
+    if (clockOffset !== null && data.t0 && data.tEnd) {
+      data._before = Math.max(0, data.t0 - clockOffset - sentAt);
+      data._after = Math.max(0, Date.now() - (data.tEnd - clockOffset));
+    }
     if (data.ok && action !== 'logout' && payload.session === sessionStorage.getItem(SESSION_KEY)) lastActivity = Date.now();
     return data;
   } catch (err) {
@@ -101,11 +109,26 @@ function log(label, r, cls) {
   if (r._ms !== undefined) parts.push('總耗時 ' + sec(r._ms) + ' 秒');
   if (r.serverMs !== undefined) parts.push('後端 ' + sec(r.serverMs) + ' 秒');
   if (r.lockWaitMs) parts.push('排隊 ' + sec(r.lockWaitMs) + ' 秒');
+  // 診斷：平台時間（總耗時 − 後端）達 3 秒，或存檔達 1 秒時，分段顯示
+  if (r._ms !== undefined && r.serverMs !== undefined && (r._ms - r.serverMs >= 3000 || r.flushMs >= 1000)) {
+    parts.push('分段：開始前等待 ' + (r._before !== undefined ? '約 ' + sec(r._before) : '?') + '、程式 ' + sec(r.bodyMs || 0) +
+      '、存檔 ' + sec(r.flushMs || 0) + '、結束後 ' + (r._after !== undefined ? '約 ' + sec(r._after) : '?') + ' 秒');
+  }
+  if (r.timings && r.timings.verifyMs !== undefined) parts.push('分項：' + timingText(r));
   if (r.verifyMethod) parts.push(methodText(r.verifyMethod) + (r.loginPath ? '、' + (r.loginPath === 'FAST' ? '快速登入' : '完整登入') : ''));
   m.textContent = (r.message || r.error || '') + (parts.length ? '（' + parts.join('，') + '）' : '') +
     (r.remainingQuota !== undefined ? '　今日剩餘寄信額度：' + r.remainingQuota : '');
   li.append(t, s, m);
   document.getElementById('log').prepend(li);
+}
+const TIMING_LABELS = [['verifyMs', '驗證憑證'], ['jwksMs', '其中下載 Google 金鑰'], ['userMs', '查快取'], ['lockWaitMs', '排隊'],
+  ['findUserMs', '查使用者'], ['updateUserMs', '更新登入日'], ['rolesMs', '讀角色'], ['sessionMs', '建立登入紀錄']];
+function timingText(r) {
+  const T = r.timings;
+  const parts = TIMING_LABELS.filter(x => T[x[0]] !== undefined).map(x => x[1] + ' ' + sec(T[x[0]]));
+  if (r.logMs !== undefined) parts.push('寫操作紀錄 ' + sec(r.logMs));
+  if (r.flushMs !== undefined) parts.push('存檔 ' + sec(r.flushMs));
+  return parts.join('、') + ' 秒';
 }
 function methodText(m) { return m === 'LOCAL' ? '後端驗證簽章' : m === 'TOKENINFO_FALLBACK' ? '改用 Google 查驗' : m; }
 function newKey() { return 'k-' + crypto.randomUUID(); }
@@ -232,34 +255,40 @@ function renderPerf() {
   const box = document.getElementById('perfTable');
   box.textContent = '';
   const rows = Object.values(perfResults);
-  const lr = loginRuns();
-  if (lr.length) {
+  const all = loginRuns();
+  const t = TARGET.login;
+  [['FAST', '一般登入（快速登入）'], ['FULL', '完整登入（含每天第一次）']].forEach(function (g) {
+    const lr = all.filter(x => x.path === g[0]).slice(-5);
+    if (!lr.length) return;
     const worst = Math.max(...lr.map(x => x.ms));
-    const t = TARGET.login;
-    const verdict = lr.length < 5 ? '已測 ' + lr.length + ' 次，需 5 次才判定' :
-      worst <= t.goal ? '達到目標' : worst <= t.limit ? '未達目標但在上限內（驗收通過）' : '超過上限（驗收不通過）';
-    rows.push(['登入（最近 ' + lr.length + ' 次）', lr.map(x => sec(x.ms)).join('、'), sec(worst),
+    const verdict = (lr.length < 5 && g[0] === 'FAST') ? '已測 ' + lr.length + ' 次，需 5 次才判定' :
+      worst <= t.goal ? '達到目標' : worst <= t.limit ? '未達目標但在上限內' : '超過上限';
+    rows.push([g[1] + '（最近 ' + lr.length + ' 次）',
+      lr.map(x => (g[0] === 'FULL' ? stamp(x.at) + ' ' : '') + sec(x.ms)).join('、'), sec(worst),
       lr.map(x => sec(x.server) + (x.method === 'LOCAL' ? '' : '＊')).join('、'), sec(t.goal) + '／' + sec(t.limit), verdict]);
-  }
+  });
   if (!rows.length) return;
-  box.append(table(['項目', '5 次總耗時（秒）', '最慢（秒）', '後端（秒）', '目標／上限（秒）', '判定'], rows));
-  if (lr.some(x => x.method !== 'LOCAL')) {
+  box.append(table(['項目', '總耗時（秒）', '最慢（秒）', '後端（秒）', '目標／上限（秒）', '判定'], rows));
+  if (all.some(x => x.method !== 'LOCAL')) {
     const n = document.createElement('p'); n.className = 'note'; n.textContent = '＊ 該次改用 Google 查驗（後端無法自行驗證時的備援方式）。'; box.append(n);
   }
 }
+function stamp(ms) { const d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
 
-/* ---------- 登入計時（每次成功登入自動記錄，保留最近 5 次） ---------- */
-function loginRuns() { try { return JSON.parse(sessionStorage.getItem(LOGIN_RUNS_KEY) || '[]'); } catch (e) { return []; } }
+/* ---------- 登入計時（每次成功登入自動記錄；快速與完整登入分開，各保留最近 5 次）----------
+ * 存在本瀏覽器（不含任何憑證或登入代碼，只有時間數字），換瀏覽器或清除網站資料時會消失。 */
+function loginRuns() { try { return JSON.parse(localStorage.getItem(LOGIN_RUNS_KEY) || '[]'); } catch (e) { return []; } }
 function recordLogin(r) {
   const runs = loginRuns();
   runs.push({ ms: r._ms, server: r.serverMs, method: r.verifyMethod, path: r.loginPath, at: Date.now() });
-  try { sessionStorage.setItem(LOGIN_RUNS_KEY, JSON.stringify(runs.slice(-5))); } catch (e) { /* 無法保存時略過 */ }
+  const keep = ['FAST', 'FULL'].map(p => runs.filter(x => x.path === p).slice(-5)).flat().sort((x, y) => x.at - y.at);
+  try { localStorage.setItem(LOGIN_RUNS_KEY, JSON.stringify(keep)); } catch (e) { /* 無法保存時略過 */ }
   renderPerf();
 }
 function clearLoginRuns() {
-  try { sessionStorage.removeItem(LOGIN_RUNS_KEY); } catch (e) { /* 略過 */ }
+  try { localStorage.removeItem(LOGIN_RUNS_KEY); } catch (e) { /* 略過 */ }
   renderPerf();
-  log('清除登入計時紀錄', { ok: true, message: '已清除，接下來 5 次登入會重新計時' });
+  log('清除登入計時紀錄', { ok: true, message: '已清除，之後的登入會重新計時' });
 }
 
 /* ---------- C. 多人同時寫入與重複送出 ---------- */
@@ -361,13 +390,15 @@ async function onOtherCredential(resp) {
 /* ---------- E3. 登出與閒置逾時 ---------- */
 async function doOldSession() {
   const r = await api('me', { session: oldSession });
-  log('用登出後的舊登入代碼呼叫（應被拒）', r, r.ok ? 'bad' : 'ok');
+  log('用已失效的舊登入代碼呼叫（應被拒）', r, r.ok ? 'bad' : 'ok');
 }
 async function doIdleCheck() {
   const idleSec = lastActivity ? Math.round((Date.now() - lastActivity) / 1000) : 0;
   const r = await api('me');
   log('閒置 ' + Math.floor(idleSec / 60) + ' 分 ' + (idleSec % 60) + ' 秒後呼叫', r, r.ok ? 'ok' : (r.reason === '閒置逾時' ? 'ok' : 'bad'));
   if (r.ok) { showMe(r.user, r.initialized); return; }
+  oldSession = sessionStorage.getItem(SESSION_KEY) || oldSession;   // 保留失效代碼，供「調長設定後再試」測試
+  document.getElementById('oldSessBtn').disabled = !oldSession;
   sessionStorage.removeItem(SESSION_KEY);
   lastActivity = 0;
   hideAll();
@@ -415,8 +446,12 @@ let lastWarm = 0;
 async function warmUp() {
   lastWarm = Date.now();
   try {
+    const a = Date.now();
     const resp = await fetch(API_URL, { method: 'GET', redirect: 'follow', credentials: 'omit' });
     const d = await resp.json();
+    const b = Date.now();
+    // 時鐘差估計：後端時間 − 往返中點（誤差約為往返時間的一半）
+    if (d && typeof d.now === 'number' && b - a < 15000) clockOffset = d.now - (a + b) / 2;
     if (d && d.version) document.getElementById('ver').textContent = d.version + '（後端）';
   } catch (e) { /* 喚醒失敗不影響操作 */ }
 }

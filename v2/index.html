@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>借用系統 2.2（測試環境）</title>
-<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.4
+<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.6
      本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
 <link rel="stylesheet" href="styles.css">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -18,7 +18,7 @@
 </div>
 <main>
   <h1>工管系場地及設備借用管理系統</h1>
-  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.4</span> · 項目 1：測試環境與資料底層</p>
+  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.6</span> · 項目 1：測試環境與資料底層</p>
 
   <section id="loginBox">
     <h2>登入</h2>
@@ -59,7 +59,7 @@
 
   <section id="perfBox" class="hidden admin-only">
     <h2>B. 效能測試</h2>
-    <p class="note">每項連續做 5 次，取最慢一次判定。標準：讀取目標 2 秒、上限 4 秒；寫入與登入目標 3 秒、上限 5 秒（以「總耗時」計）。登入不需按鈕：每次成功登入會自動記錄，保留最近 5 次。</p>
+    <p class="note">每項連續做 5 次，取最慢一次判定。標準：讀取目標 2 秒、上限 4 秒；寫入與登入目標 3 秒、上限 5 秒（以「總耗時」計）。登入不需按鈕：每次成功登入會自動記錄，「一般登入（快速）」與「完整登入（含每天第一次）」分開統計，各保留最近 5 次。</p>
     <div class="row">
       <button onclick="perfRun('read')">讀取測試 × 5</button>
       <button onclick="perfRun('write')">寫入測試 × 5</button>
@@ -108,7 +108,7 @@
     <h3>E3. 登出與閒置逾時</h3>
     <p class="note" id="idleInfo">登入後顯示閒置時間。</p>
     <div class="row">
-      <button id="oldSessBtn" onclick="doOldSession()" disabled>用剛登出的舊登入代碼呼叫</button>
+      <button id="oldSessBtn" onclick="doOldSession()" disabled>用剛失效（登出或逾時）的舊登入代碼呼叫</button>
       <button onclick="doIdleCheck()">現在呼叫一次（檢查是否已逾時）</button>
     </div>
     <h3>E4. 學校 Email 驗證（教職員）</h3>
