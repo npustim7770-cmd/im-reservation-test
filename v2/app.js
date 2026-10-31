@@ -1,7 +1,8 @@
 /**
- * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.7
+ * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.8
  * 2.2.2：開啟頁面時先喚醒後端（只查看服務狀態，不讀寫任何資料），並顯示後端實際版本
  * 2.2.4：送出與儲存時顯示「處理中」提示並暫停所有按鈕（防止重複送出）；記錄每次登入的耗時與驗證方式
+ * 2.2.8：同時登入測試改為逐筆核對（登入紀錄、LOGIN 紀錄、驗證與授權、登出）；可測 10／20 次；忙碌時提示重新登入
  * 2.2.7：顯示使用者索引狀態；新增「同時登入 10 次」測試（確認登入紀錄不互相覆蓋）
  * 2.2.6：登入分項計時；快速登入與完整登入（含每天第一次）分開統計
  * 2.2.5：總耗時異常時，分段顯示「開始前等待／程式處理／試算表存檔／結束後等待」；閒置逾時後可用舊代碼再測一次
@@ -123,12 +124,13 @@ function log(label, r, cls) {
   document.getElementById('log').prepend(li);
 }
 const TIMING_LABELS = [['verifyMs', '驗證憑證'], ['jwksMs', '其中下載 Google 金鑰'], ['userMs', '查快取'], ['lockWaitMs', '排隊'],
-  ['findUserMs', '查使用者'], ['updateUserMs', '更新登入日'], ['rolesMs', '讀角色'], ['sessionMs', '建立登入紀錄']];
+  ['findUserMs', '查使用者'], ['updateUserMs', '更新登入日'], ['rolesMs', '讀角色'], ['sessionMs', '建立登入紀錄'],
+  ['logMs', '寫操作紀錄'], ['verifyWriteMs', '存檔與讀回核對']];
 function timingText(r) {
   const T = r.timings;
   const parts = TIMING_LABELS.filter(x => T[x[0]] !== undefined).map(x => x[1] + ' ' + sec(T[x[0]]) +
     (x[0] === 'findUserMs' && T.userIndex ? '（索引' + ({ HIT: '命中', STALE: '失效已重查', MISS: '未建立' }[T.userIndex] || T.userIndex) + '）' : ''));
-  if (r.logMs !== undefined) parts.push('寫操作紀錄 ' + sec(r.logMs));
+  if (r.logMs !== undefined && T.logMs === undefined) parts.push('寫操作紀錄 ' + sec(r.logMs));
   if (r.flushMs !== undefined) parts.push('存檔 ' + sec(r.flushMs));
   return parts.join('、') + ' 秒';
 }
@@ -154,6 +156,8 @@ async function onGoogleCredential(resp) {
     sessionStorage.setItem(CRED_KEY, JSON.stringify({ cred: resp.credential, at: Date.now() }));
     lastActivity = Date.now();
     showMe(r.user, r.initialized);
+  } else if (r.error === 'BUSY' || r.error === 'WRITE_FAILED') {
+    document.getElementById('gsiStatus').textContent = '登入未完成：' + r.message + '（請稍候約 10 秒後，再按一次 Google 登入按鈕）';
   } else {
     document.getElementById('gsiStatus').textContent = '登入失敗：' + (r.message || r.error);
   }
@@ -222,7 +226,9 @@ async function doStatus() {
     ['學校 Email 網域', r.staffDomains || '（尚未設定）'], ['本系系所', r.homeDept], ['閒置逾時', r.idleMinutes + ' 分鐘'],
     ['未完成寫入', r.pendingWrites + ' 筆'], ['欄位標題檢查', r.headerProblems.length ? '異常：' + r.headerProblems.join('、') : '正常'],
     ['測試計數器', String(r.testCounter)],
-    ['Google 公開金鑰快取', r.jwksKeys ? r.jwksKeys + ' 把（下載於 ' + r.jwksFetchedAt + '）' : '目前沒有（下次登入時自動下載）']
+    ['Google 公開金鑰快取', r.jwksKeys ? r.jwksKeys + ' 把（下載於 ' + r.jwksFetchedAt + '）' : '目前沒有（下次登入時自動下載）'],
+    ['暫存待補寫的操作紀錄', (r.logBacklog || 0) + ' 筆' + (r.logBacklog ? '（定時預熱或下次寫入時自動補寫）' : '')],
+    ['紀錄保存失敗（已寫入 Google 執行紀錄）', (r.logLost || 0) + ' 次' + (r.logLost ? '（請告知開發者）' : '')]
   ].concat(Object.keys(r.counts).map(k => ['資料筆數：' + k, String(r.counts[k])]));
   box.append(table(['項目', '內容'], rows));
 }
@@ -317,7 +323,9 @@ async function doConcurrent(n) {
       '；計數器 ' + before + ' → ' + after + '（增加 ' + (after - before) + '）；各筆取得的計數值' + (distinct ? '皆不重複' : '有重複！') +
       '；判定：' + (pass ? '一致，沒有漏算或重複' : '不一致，請截圖告知開發者') });
 }
-// 2.2.7：同一帳號同時登入 n 次（使用本分頁保存、尚未過期的 Google 憑證），確認每次都寫入獨立的一列、不互相覆蓋
+// 2.2.8：同一帳號同時登入 n 次（使用本分頁保存、尚未過期的 Google 憑證），逐筆核對：
+// ① 成功次數 ＝ Sessions 增加列數 ② 每個成功的登入紀錄編號在 Sessions 與 LOGIN 紀錄各恰好 1 筆、雜湊值不重複
+// ③ 每個成功的代碼都能通過後端驗證與「僅系統管理員」授權 ④ 登出時各自找到自己的列，登出後全部失效
 async function doConcurrentLogin(n) {
   const s = savedCred();
   if (!s || Date.now() - s.at > 55 * 60000) { log('同時登入', { ok: false, message: '需要 55 分鐘內取得的 Google 憑證：請先登出再重新登入一次，然後立即執行' }, 'warn'); return; }
@@ -327,21 +335,24 @@ async function doConcurrentLogin(n) {
   const rs = await Promise.all(Array.from({ length: n }, () => api('login', { idToken: s.cred })));
   const ms = Math.round(performance.now() - t0);
   const okRs = rs.filter(r => r.ok);
-  const toks = okRs.map(r => r.session);
+  const fails = {};
+  rs.filter(r => !r.ok).forEach(r => { fails[r.error || '其他'] = (fails[r.error || '其他'] || 0) + 1; });
+  const failText = Object.keys(fails).length ? Object.keys(fails).map(k => k + ' ' + fails[k]).join('、') : '0';
   const st1 = await api('status');
   const addSess = st1.counts.Sessions - st0.counts.Sessions;
-  const addLogs = st1.counts.AuditLogs - st0.counts.AuditLogs;
-  const outs = await Promise.all(toks.map(t => api('logout', { session: t })));
+  const v = await api('verifySessions', { sessionIds: okRs.map(r => r.sessionId) });
+  const authed = (await Promise.all(okRs.map(r => api('adminPing', { session: r.session })))).filter(x => x.ok).length;
+  const outs = await Promise.all(okRs.map(r => api('logout', { session: r.session })));
   const rowsFound = outs.filter(o => o.ok && o.rowFound).map(o => o.sessionRow);
-  const distinctRows = new Set(rowsFound).size;
-  const checks = await Promise.all(toks.map(t => api('me', { session: t })));
-  const stillValid = checks.filter(c => c.ok).length;
-  const pass = okRs.length === n && new Set(toks).size === n && addSess === n && addLogs >= n &&
-    rowsFound.length === n && distinctRows === n && stillValid === 0;
+  const stillValid = (await Promise.all(okRs.map(r => api('me', { session: r.session })))).filter(c => c.ok).length;
+  const failedRowsNote = addSess - okRs.length;   // 寫入失敗時會留下已作廢的列（WRITE_FAILED）
+  const pass = v.ok && v.allOne && v.duplicateHashes === 0 && (addSess === okRs.length || (fails.WRITE_FAILED && failedRowsNote <= fails.WRITE_FAILED)) &&
+    authed === okRs.length && rowsFound.length === okRs.length && new Set(rowsFound).size === okRs.length && stillValid === 0 && okRs.length > 0;
   log('同一帳號同時登入 ' + n + ' 次', { ok: pass, _ms: ms,
-    message: '登入成功 ' + okRs.length + '／' + n + '（最慢 ' + sec(Math.max(...rs.map(r => r._ms))) + ' 秒）；Sessions 增加 ' + addSess +
-      ' 列、操作紀錄增加 ' + addLogs + ' 列；登出時找到各自的列 ' + rowsFound.length + ' 筆（不重複列號 ' + distinctRows + '）；登出後仍有效 ' + stillValid +
-      ' 個；判定：' + (pass ? '每次登入各有獨立的一列，沒有覆蓋或遺失' : '不一致，請截圖告知開發者') });
+    message: '成功 ' + okRs.length + '、失敗 ' + (n - okRs.length) + '（' + failText + '）；最慢 ' + sec(Math.max(...rs.map(r => r._ms))) + ' 秒｜' +
+      'Sessions 增加 ' + addSess + ' 列｜逐筆核對：' + (v.ok ? v.message : (v.message || v.error)) + '｜' +
+      '通過驗證與授權 ' + authed + '／' + okRs.length + '｜登出找到各自的列 ' + rowsFound.length + '（不重複 ' + new Set(rowsFound).size + '）｜登出後仍有效 ' + stillValid +
+      '｜判定：' + (pass ? '成功次數與保存的紀錄完全一致，沒有覆蓋或遺失' : '不一致，請截圖告知開發者') });
 }
 
 async function doDoubleSubmit() {
