@@ -1,7 +1,8 @@
 /**
- * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.6
+ * 工管系場地及設備借用管理系統｜2.2 前端操作邏輯（項目 1：測試環境與資料底層）2.2.7
  * 2.2.2：開啟頁面時先喚醒後端（只查看服務狀態，不讀寫任何資料），並顯示後端實際版本
  * 2.2.4：送出與儲存時顯示「處理中」提示並暫停所有按鈕（防止重複送出）；記錄每次登入的耗時與驗證方式
+ * 2.2.7：顯示使用者索引狀態；新增「同時登入 10 次」測試（確認登入紀錄不互相覆蓋）
  * 2.2.6：登入分項計時；快速登入與完整登入（含每天第一次）分開統計
  * 2.2.5：總耗時異常時，分段顯示「開始前等待／程式處理／試算表存檔／結束後等待」；閒置逾時後可用舊代碼再測一次
  * 本檔只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。
@@ -125,7 +126,8 @@ const TIMING_LABELS = [['verifyMs', '驗證憑證'], ['jwksMs', '其中下載 Go
   ['findUserMs', '查使用者'], ['updateUserMs', '更新登入日'], ['rolesMs', '讀角色'], ['sessionMs', '建立登入紀錄']];
 function timingText(r) {
   const T = r.timings;
-  const parts = TIMING_LABELS.filter(x => T[x[0]] !== undefined).map(x => x[1] + ' ' + sec(T[x[0]]));
+  const parts = TIMING_LABELS.filter(x => T[x[0]] !== undefined).map(x => x[1] + ' ' + sec(T[x[0]]) +
+    (x[0] === 'findUserMs' && T.userIndex ? '（索引' + ({ HIT: '命中', STALE: '失效已重查', MISS: '未建立' }[T.userIndex] || T.userIndex) + '）' : ''));
   if (r.logMs !== undefined) parts.push('寫操作紀錄 ' + sec(r.logMs));
   if (r.flushMs !== undefined) parts.push('存檔 ' + sec(r.flushMs));
   return parts.join('、') + ' 秒';
@@ -315,6 +317,33 @@ async function doConcurrent(n) {
       '；計數器 ' + before + ' → ' + after + '（增加 ' + (after - before) + '）；各筆取得的計數值' + (distinct ? '皆不重複' : '有重複！') +
       '；判定：' + (pass ? '一致，沒有漏算或重複' : '不一致，請截圖告知開發者') });
 }
+// 2.2.7：同一帳號同時登入 n 次（使用本分頁保存、尚未過期的 Google 憑證），確認每次都寫入獨立的一列、不互相覆蓋
+async function doConcurrentLogin(n) {
+  const s = savedCred();
+  if (!s || Date.now() - s.at > 55 * 60000) { log('同時登入', { ok: false, message: '需要 55 分鐘內取得的 Google 憑證：請先登出再重新登入一次，然後立即執行' }, 'warn'); return; }
+  const st0 = await api('status');
+  if (!st0.ok) { log('同時登入', st0); return; }
+  const t0 = performance.now();
+  const rs = await Promise.all(Array.from({ length: n }, () => api('login', { idToken: s.cred })));
+  const ms = Math.round(performance.now() - t0);
+  const okRs = rs.filter(r => r.ok);
+  const toks = okRs.map(r => r.session);
+  const st1 = await api('status');
+  const addSess = st1.counts.Sessions - st0.counts.Sessions;
+  const addLogs = st1.counts.AuditLogs - st0.counts.AuditLogs;
+  const outs = await Promise.all(toks.map(t => api('logout', { session: t })));
+  const rowsFound = outs.filter(o => o.ok && o.rowFound).map(o => o.sessionRow);
+  const distinctRows = new Set(rowsFound).size;
+  const checks = await Promise.all(toks.map(t => api('me', { session: t })));
+  const stillValid = checks.filter(c => c.ok).length;
+  const pass = okRs.length === n && new Set(toks).size === n && addSess === n && addLogs >= n &&
+    rowsFound.length === n && distinctRows === n && stillValid === 0;
+  log('同一帳號同時登入 ' + n + ' 次', { ok: pass, _ms: ms,
+    message: '登入成功 ' + okRs.length + '／' + n + '（最慢 ' + sec(Math.max(...rs.map(r => r._ms))) + ' 秒）；Sessions 增加 ' + addSess +
+      ' 列、操作紀錄增加 ' + addLogs + ' 列；登出時找到各自的列 ' + rowsFound.length + ' 筆（不重複列號 ' + distinctRows + '）；登出後仍有效 ' + stillValid +
+      ' 個；判定：' + (pass ? '每次登入各有獨立的一列，沒有覆蓋或遺失' : '不一致，請截圖告知開發者') });
+}
+
 async function doDoubleSubmit() {
   const before = await counterNow();
   const body = { submissionKey: newKey() };

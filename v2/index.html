@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>借用系統 2.2（測試環境）</title>
-<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.6
+<!-- 工管系場地及設備借用管理系統｜第二階段 2.2 前端（項目 1：測試環境與資料底層）2.2.7
      本頁只放公開資訊：後端網址、Google 登入用戶端 ID。不含任何密碼、金鑰或資料。 -->
 <link rel="stylesheet" href="styles.css">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -18,7 +18,7 @@
 </div>
 <main>
   <h1>工管系場地及設備借用管理系統</h1>
-  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.6</span> · 項目 1：測試環境與資料底層</p>
+  <p class="sub">第二階段 2.2 · 版本 <span id="ver">2.2.7</span> · 項目 1：測試環境與資料底層</p>
 
   <section id="loginBox">
     <h2>登入</h2>
@@ -74,7 +74,9 @@
     <div class="row">
       <button onclick="doConcurrent(20)">同時送出 20 次寫入</button>
       <button onclick="doDoubleSubmit()">同一筆連按兩次送出</button>
+      <button onclick="doConcurrentLogin(10)">同一帳號同時登入 10 次</button>
     </div>
+    <p class="note">「同時登入 10 次」使用本分頁剛取得的 Google 憑證（55 分鐘內），完成後會自動把這 10 個登入全部登出，不影響目前的登入。</p>
   </section>
 
   <section id="journalBox" class="hidden admin-only">
